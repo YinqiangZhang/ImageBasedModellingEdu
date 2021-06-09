@@ -24,4 +24,6 @@ set(TEXTURING_SOURCES
         arguments.cpp
         task7_2_texrecon.cpp)
 add_executable(task7_2_texturing ${TEXTURING_SOURCES})
-target_link_libraries(task7_2_texturing mvs util core texturing coldet mrf gco)
+
+# change the order between texturing and core
+target_link_libraries(task7_2_texturing mvs util texturing core coldet mrf gco)
