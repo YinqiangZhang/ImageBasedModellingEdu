@@ -42,7 +42,10 @@ int  calc_ransac_iterations (double p,
 
     /** TODO HERE
      * Coding here**/
-    return 0;
+
+    // calculate the number of iterations
+    double M = std::log(1-z)/std::log(1-math::fastpow(p, K));
+    return static_cast<int>(math::round(M));
 
 
     /** Reference
@@ -176,6 +179,13 @@ std::vector<int> find_inliers(sfm::Correspondences2D2D const & matches
      * TODO HERE
      *
      * Coding here **/
+    for (int i=0;i<matches.size();i++){
+        // compute error
+        double error = calc_sampson_distance(F, matches[i]);
+        if (error < squared_thresh){
+            inliers.push_back(i);
+        }
+    }
 
     /** Reference
     for(int i=0; i< matches.size(); i++){
@@ -185,6 +195,8 @@ std::vector<int> find_inliers(sfm::Correspondences2D2D const & matches
         }
     }
      **/
+
+    // here we only save the indices of inliers for further use
     return inliers;
 }
 
@@ -193,25 +205,27 @@ std::vector<int> find_inliers(sfm::Correspondences2D2D const & matches
 int main(int argc, char *argv[]){
 
     /** 加载归一化后的匹配对 */
-    sfm::Correspondences2D2D corr_all;
+    sfm::Correspondences2D2D corr_all; // a vector container for a point pair
     std::ifstream in("./examples/task1/correspondences.txt");
     assert(in.is_open());
 
-    std::string line, word;
+    std::string line, word; // get correspondence point information
     int n_line = 0;
     while(getline(in, line)){
 
         std::stringstream stream(line);
+        // the total number of correspondent point pairs
         if(n_line==0){
             int n_corrs = 0;
             stream>> n_corrs;
-            corr_all.resize(n_corrs);
+            corr_all.resize(n_corrs); // resize the length of vector
 
-            n_line ++;
+            n_line ++; // turn to the next line
             continue;
         }
         if(n_line>0){
-
+            
+            // four values of two points
             stream>>corr_all[n_line-1].p1[0]>>corr_all[n_line-1].p1[1]
                   >>corr_all[n_line-1].p2[0]>>corr_all[n_line-1].p2[1];
         }
@@ -221,6 +235,7 @@ int main(int argc, char *argv[]){
     /* 计算采用次数 */
     const float inlier_ratio =0.5;
     const int n_samples=8;
+    // generate samples for all iterations
     int n_iterations = calc_ransac_iterations(inlier_ratio, n_samples);
 
     // 用于判读匹配对是否为内点
@@ -236,15 +251,19 @@ int main(int argc, char *argv[]){
 
         /* 1.0 随机找到8对不重复的匹配点 */
         std::set<int> indices;
+
+        // std::cout << corr_all.size() << std::endl;
+        // use set to generate a set of random values from all corresponding point pairs 
         while(indices.size()<8){
             indices.insert(util::system::rand_int() % corr_all.size());
         }
 
-        math::Matrix<double, 3, 8> pset1, pset2;
-        std::set<int>::const_iterator iter = indices.cbegin();
+        math::Matrix<double, 3, 8> pset1, pset2; // two sets of points
+        std::set<int>::const_iterator iter = indices.cbegin(); // an iterator of point set
         for(int j=0; j<8; j++, iter++){
             sfm::Correspondence2D2D const & match = corr_all[*iter];
 
+            // normalized points
             pset1(0, j) = match.p1[0];
             pset1(1, j) = match.p1[1];
             pset1(2, j) = 1.0;
