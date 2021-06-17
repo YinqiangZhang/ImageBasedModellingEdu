@@ -101,11 +101,14 @@ void
 feature_set_matching (core::ByteImage::Ptr image1, core::ByteImage::Ptr image2)
 {
     /*FeatureSet 计算并存储一个视角的特征点，包含SIFT和SURF特征点 */
+    // utilize two types of descriptors 
     sfm::FeatureSet::Options feature_set_opts;
     //feature_types设置为FEATURE_ALL表示检测SIFT和SURF两种特征点进行匹配
     feature_set_opts.feature_types = sfm::FeatureSet::FEATURE_ALL;
+    // SIFT verbose
     feature_set_opts.sift_opts.verbose_output = true;
-    //feature_set_opts.surf_opts.verbose_output = true;
+    // SURF verbose
+    feature_set_opts.surf_opts.verbose_output = true;
     //feature_set_opts.surf_opts.contrast_threshold = 500.0f;
 
     // 计算第一幅图像的SIT和SURF特征点
@@ -193,6 +196,7 @@ feature_set_matching (core::ByteImage::Ptr image1, core::ByteImage::Ptr image2)
             continue;
 
         sfm::Sift::Descriptor const& descr = feat1.sift_descriptors[i];
+        // save information of descriptor in the keypoint of visualizer
         sfm::Visualizer::Keypoint kp;
         kp.orientation = descr.orientation;
         kp.radius = descr.scale * 3.0f;
@@ -216,21 +220,26 @@ feature_set_matching (core::ByteImage::Ptr image1, core::ByteImage::Ptr image2)
         features2.push_back(kp);
     }
 
+    // visulization of keypoints on images
+    // what's the difference between BOX_ and CIRCLE_ORIENTATION
     image1 = sfm::Visualizer::draw_keypoints(image1,
         features1, sfm::Visualizer::RADIUS_BOX_ORIENTATION);
     image2 = sfm::Visualizer::draw_keypoints(image2,
         features2, sfm::Visualizer::RADIUS_BOX_ORIENTATION);
 
+    // save the matching relationship
     core::ByteImage::Ptr match_image = visualize_matching(
         matching, image1, image2, feat1.positions, feat2.positions);
     std::string output_filename = "./tmp/matching_featureset.png";
     std::cout << "Saving visualization to " << output_filename << std::endl;
+    // save matching images
     core::image::save_file(match_image, output_filename);
 }
 
 int
 main (int argc, char** argv)
 {
+    // error information for not enough inputs 
     if (argc < 3)
     {
         std::cerr << "Syntax: " << argv[0] << " image1 image2" << std::endl;
@@ -246,20 +255,27 @@ main (int argc, char** argv)
 #endif
 
     /* Regular two-view matching. */
-    core::ByteImage::Ptr image1, image2;
+    core::ByteImage::Ptr image1, image2; // pointers for two images
     try
     {
         std::cout << "Loading " << argv[1] << "..." << std::endl;
         image1 = core::image::load_file(std::string(argv[1]));
-        // 图像尺寸减半
+        // information for image 1
+        std::cout << "Raw image 1: [" << image1->height() << ", " << image1->width() << "]" << std::endl;
+        // 图像尺寸减半 (why we need to half the image sizes)
         image1 = core::image::rescale_half_size<uint8_t>(image1);
+        std::cout << "Resized image 1: [" << image1->height() << ", " << image1->width() << "]" << std::endl;
         //image1 = core::image::rescale_half_size<uint8_t>(image1);
         //image1 = core::image::rotate<uint8_t>(image1, core::image::ROTATE_CCW);
 
         std::cout << "Loading " << argv[2] << "..." << std::endl;
         image2 = core::image::load_file(argv[2]);
+        // information for image 2
+        std::cout << "rRaw image 2: [" << image2->height() << ", " << image2->width() << "]" << std::endl;
         // 图像尺寸减半
         image2 = core::image::rescale_half_size<uint8_t>(image2);
+        std::cout << "Resized image 2: [" << image2->height() << ", " << image2->width() << "]" << std::endl;
+
         //image2 = core::image::rescale_half_size<uint8_t>(image2);
         //image2 = core::image::rotate<uint8_t>(image2, core::image::ROTATE_CCW);
     }
