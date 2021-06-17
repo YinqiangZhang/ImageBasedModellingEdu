@@ -40,6 +40,8 @@ main (int argc, char** argv)
     try
     {
         std::cout << "Loading " << image_filename << "..." << std::endl;
+
+        // read images
         image = core::image::load_file(image_filename);
         //image = core::image::rescale_half_size<uint8_t>(image);
         //image = core::image::rescale_half_size<uint8_t>(image);
@@ -55,6 +57,7 @@ main (int argc, char** argv)
     features::Sift::Descriptors sift_descr;
     features::Sift::Keypoints sift_keypoints;
     {
+        // set ouput-information for verbose and debug
         features::Sift::Options sift_options;
         sift_options.verbose_output = true;
         sift_options.debug_output = true;
@@ -71,6 +74,7 @@ main (int argc, char** argv)
     }
 
     // 对特征点按照尺度进行排序
+    // use a target function to sort the vector
     std::sort(sift_descr.begin(), sift_descr.end(), sift_compare);
 
     std::vector<features::Visualizer::Keypoint> sift_drawing;
