@@ -133,7 +133,7 @@ bool calc_cam_poses(FundamentalMatrix const &F
      * 计算本质矩阵E*/
     EssentialMatrix E;
 
-    E=K2.transpose() * F * K1;
+    E=K2.transpose() * F * K1; // relationship between fundamental and essential matrix
 
     /** Reference
      *  EssentialMatrix E = K2.transpose() * F * K1;
