@@ -101,6 +101,7 @@ void load_data(const std::string& file_name
         for (int i = 0; i < cams.size(); i++) {
             getline(in, line);
             std::stringstream stream(line);
+            // totally 1 + 2 + 3 + 9 = 15 parameters
             stream >> cams[i].focal_length;
             stream >> cams[i].distortion[0] >> cams[i].distortion[1];
             for (int j = 0; j < 3; j++)stream >> cams[i].translation[j];
@@ -108,7 +109,7 @@ void load_data(const std::string& file_name
         }
     }
 
-    // 加载三维点
+    // 加载三维点 true 3D points
     {
         int n_points  = 0;
         getline(in, line);
@@ -118,11 +119,12 @@ void load_data(const std::string& file_name
         for(int i=0; i<n_points; i++) {
             getline(in, line);
             std::stringstream stream(line);
+            // save the coordinates of points
             stream>>pts3D[i].pos[0]>>pts3D[i].pos[1]>>pts3D[i].pos[2];
         }
     }
 
-    //加载观察点
+    //加载观察点 image-based 2D points 
     {
         int n_observations = 0;
         getline(in, line);
@@ -266,6 +268,7 @@ void rodrigues_to_matrix (double const* r, double* m)
 void update_camera (sfm::ba::Camera const& cam,
                                  double const* update, sfm::ba::Camera* out)
 {
+    // theoretically 9 parameters of each camera
     out->focal_length = cam.focal_length   + update[0];
     out->distortion[0] = cam.distortion[0] + update[1];
     out->distortion[1] = cam.distortion[1] + update[2];
@@ -274,10 +277,16 @@ void update_camera (sfm::ba::Camera const& cam,
     out->translation[1] = cam.translation[1] + update[4];
     out->translation[2] = cam.translation[2] + update[5];
 
+    // copy the roatation variables
     double rot_orig[9];
+    // the last one will not be considered (9 elements)
     std::copy(cam.rotation, cam.rotation + 9, rot_orig);
     double rot_update[9];
+
+    // convert the later representation (without focal length, distortion, and translation) to rotation matrix
+    // the raw result is axis-angle representation
     rodrigues_to_matrix(update + 6, rot_update);
+    // save the results and replace the ratation matrix
     math::matrix_multiply(rot_update, 3, 3, rot_orig, 3, out->rotation);
 }
 
@@ -351,12 +360,14 @@ void compute_reprojection_errors (DenseVectorType* vector_f
                             , std::vector<sfm::ba::Point3D> *points
                             ,std::vector<sfm::ba::Observation> *observations)
 {
+    // first resize the length of memory
     if (vector_f->size() != observations->size() * 2)
         vector_f->resize(observations->size() * 2);
 
 #pragma omp parallel for
     for (std::size_t i = 0; i < observations->size(); ++i)
-    {
+    {   
+        // iterate each observation and get the corresponding point id and camera id 
         sfm::ba::Observation const& obs = observations->at(i);
         sfm::ba::Point3D const& p3d = points->at(obs.point_id);
         sfm::ba::Camera const& cam = cameras->at(obs.camera_id);
@@ -370,13 +381,14 @@ void compute_reprojection_errors (DenseVectorType* vector_f
         sfm::ba::Point3D new_point;
         sfm::ba::Camera new_camera;
 
+        // the meaning of delta_x, when will we use this variable
         // 如果delta_x 不为空，则先利用delta_x对相机和结构进行更新，然后再计算重投影误差
         if (delta_x != nullptr)
         {
             std::size_t cam_id = obs.camera_id * num_cam_params;
             std::size_t pt_id = obs.point_id * 3;
 
-
+            // camera update 
             update_camera(cam, delta_x->data() + cam_id, &new_camera);
             flen = &new_camera.focal_length;
             dist = new_camera.distortion;
@@ -384,27 +396,31 @@ void compute_reprojection_errors (DenseVectorType* vector_f
             trans = new_camera.translation;
             pt_id += cameras->size() * num_cam_params;
 
-
+            // point update
             update_point(p3d, delta_x->data() + pt_id, &new_point);
             point = new_point.pos;
         }
 
-        /* Project point onto image plane. */
+        /* Project point onto image plane. Reprojection Procedure */
         double rp[] = { 0.0, 0.0, 0.0 };
+
+        // multiply roatation matrix
         for (int d = 0; d < 3; ++d)
         {
             rp[0] += rot[0 + d] * point[d];
             rp[1] += rot[3 + d] * point[d];
             rp[2] += rot[6 + d] * point[d];
         }
-        rp[2] = (rp[2] + trans[2]);
+        // remove the depth estimation
+        rp[2] = (rp[2] + trans[2]); // depth 
         rp[0] = (rp[0] + trans[0]) / rp[2];
         rp[1] = (rp[1] + trans[1]) / rp[2];
 
-        /* Distort reprojections. */
+        /* Distort reprojections. (directly change the rp[0] and rp[1])*/ 
         radial_distort(rp + 0, rp + 1, dist);
 
         /* Compute reprojection error. */
+        // all reprojectorion errors are saved in one vector (according to the projection model)
         vector_f->at(i * 2 + 0) = rp[0] * (*flen) - obs.pos[0];
         vector_f->at(i * 2 + 1) = rp[1] * (*flen) - obs.pos[1];
     }
@@ -415,6 +431,7 @@ void compute_reprojection_errors (DenseVectorType* vector_f
  * @param vector_f
  * @return
  */
+// compute mse when we already have the reprojection errors in the vector f
 double compute_mse (DenseVectorType const& vector_f) {
     double mse = 0.0;
     for (std::size_t i = 0; i < vector_f.size(); ++i)
@@ -436,6 +453,8 @@ void my_jacobian(sfm::ba::Camera const& cam,
               double* cam_x_ptr, double* cam_y_ptr,
               double* point_x_ptr, double* point_y_ptr)
 {
+    // forward procedure (from 3D points to calculate 2D observations)
+    // why we always use const to represent these variables
     const double f = cam.focal_length;
     const double *R = cam.rotation;
     const double *t = cam.translation;
@@ -456,13 +475,15 @@ void my_jacobian(sfm::ba::Camera const& cam,
     const double u = f* distort*x;
     const double v = f* distort*y;
 
-    /*关于焦距的偏导数*/
+    /*关于焦距的偏导数*/ 
+    // derivative from the obsrvations to the focal length
     cam_x_ptr[0] = distort*x;
     cam_y_ptr[0] = distort*y;
 
 
     /*计算关于径向畸变函数k0, k1的偏导数*/
     // 计算中间变量
+    // two parts: first to distort, second to k0 and k1 
     const double u_deriv_distort = f*x;
     const double v_deriv_distort = f*y;
     const double distort_deriv_k0 = r2;
@@ -476,8 +497,8 @@ void my_jacobian(sfm::ba::Camera const& cam,
 
 
     // 计算中间变量 (x,y)关于(xc, yc, zc)的偏导数
-    const double x_deriv_xc = 1/zc; const double x_deriv_yc = 0;    const double x_deriv_zc = -x/zc;
-    const double y_deriv_xc = 0   ; const double y_deriv_yc = 1/zc; const double y_deriv_zc = -y/zc;
+    const double x_deriv_xc = 1/zc; const double x_deriv_yc = 0;    const double x_deriv_zc = -x/zc; // a simplified represenatation
+    const double y_deriv_xc = 0   ; const double y_deriv_yc = 1/zc; const double y_deriv_zc = -y/zc; // a simplified representation
 
     // 计算u, v关于x, y的偏导数
     const double u_deriv_x = f*distort;
@@ -562,16 +583,18 @@ void analytic_jacobian (SparseMatrixType* jac_cam
                 , SparseMatrixType* jac_points) {
     assert(jac_cam);
     assert(jac_points);
-    // 相机和三维点jacobian矩阵的行数都是n_observations*2
+    // 相机和三维点jacobian矩阵的行数都是n_observations*2 (x + y) * observations
     // 相机jacobian矩阵jac_cam的列数是n_cameras* n_cam_params
     // 三维点jacobian矩阵jac_points的列数是n_points*3
     std::size_t const camera_cols = cameras.size() * num_cam_params;
     std::size_t const point_cols = points.size() * 3;
     std::size_t const jacobi_rows = observations.size() * 2;
 
-    // 定义稀疏矩阵的基本元素
+    // 定义稀疏矩阵的基本元素 (sparse structure inside the matrix)
     SparseMatrixType::Triplets cam_triplets, point_triplets;
+    // memories for total camera jacobian matrix
     cam_triplets.reserve(observations.size() * 2 * num_cam_params);
+    // memories for all point jacobian matrix 
     point_triplets.reserve(observations.size()*2 * 3);
 
 
@@ -587,6 +610,7 @@ void analytic_jacobian (SparseMatrixType* jac_cam
         sfm::ba::Camera const &cam = cameras[obs.camera_id];
 
         /*对一个三维点和相机求解偏导数*/
+        // with respect to only one camera-3D_point pair
         my_jacobian(cam, p3d,
                         cam_x_ptr, cam_y_ptr, point_x_ptr, point_y_ptr);
 
@@ -600,23 +624,26 @@ void analytic_jacobian (SparseMatrixType* jac_cam
         /*jac_points中三维点对应的列数为point_id* 3*/
         std::size_t point_col = obs.point_id * 3;
 
+        // save all camera jacobian elements into a vector and push them into a vector
         for (int j = 0; j < num_cam_params; ++j) {
            cam_triplets.push_back(SparseMatrixType::Triplet(row_x, cam_col + j, cam_x_ptr[j]));
            cam_triplets.push_back(SparseMatrixType::Triplet(row_y, cam_col + j, cam_y_ptr[j]));
         }
 
+        // save all point jacobian elements into a triplet and push them into a vector
         for (int j = 0; j < 3; ++j) {
             point_triplets.push_back(SparseMatrixType::Triplet(row_x, point_col + j, point_x_ptr[j]));
                 point_triplets.push_back(SparseMatrixType::Triplet(row_y, point_col + j, point_y_ptr[j]));
         }
     }
 
-
+    // save the camera triplets in the sparse matrix
     if (jac_cam != nullptr) {
        jac_cam->allocate(jacobi_rows, camera_cols);
        jac_cam->set_from_triplets(cam_triplets);
     }
 
+    // save the camera triplets in the sparse matrix 
     if (jac_points != nullptr) {
        jac_points->allocate(jacobi_rows, point_cols);
        jac_points->set_from_triplets(point_triplets);
@@ -645,16 +672,17 @@ sfm::ba::LinearSolver::Status my_solve_schur (
  *      v = Jc^T(F-x), w = Jx^T(F-x), deta_x = [delta_c; delta_p]
  */
 
-    // 误差向量
+    // 误差向量 reprojection error
     DenseVectorType const& F = values;
-    // 关于相机的雅阁比矩阵
+    // 关于相机的雅阁比矩阵 camera Jacobian matrix 
     SparseMatrixType const& Jc = jac_cams;
-    // 关于三维点的雅阁比矩阵
+    // 关于三维点的雅阁比矩阵 point Jacobian matrix 
     SparseMatrixType const& Jp = jac_points;
     SparseMatrixType JcT = Jc.transpose();
     SparseMatrixType JpT = Jp.transpose();
 
     // 构造正规方程
+    // calculated matrix B, C, and E represented by block
     SparseMatrixType B, C;
     // B = Jc^T* Jc
     matrix_block_column_multiply(Jc, camera_block_dim, &B);
@@ -767,18 +795,20 @@ void lm_optimization(std::vector<sfm::ba::Camera>*cameras
     /* Levenberg-Marquard 算法. */
     for (int lm_iter = 0; ; ++lm_iter) {
 
-        // 判断终止条件，均方误差小于一定阈值
+        // 判断终止条件，均方误差小于一定阈值 (a threshold is given here)
         if (current_mse < lm_mse_threshold) {
             std::cout << "BA: Satisfied MSE threshold." << std::endl;
             break;
         }
 
-        //1.0 计算雅阁比矩阵
+        //1.0 计算雅阁比矩阵 (Jacobian for LM algorithm)
         SparseMatrixType Jc, Jp;
+        // saved sparse Jacobian matrix for cameras and points
         analytic_jacobian(&Jc, &Jp);
 
-        //2.0 预置共轭梯梯度法对正规方程进行求解*/
+        //2.0 预置共轭梯梯度法对正规方程进行求解 solve the optimization problem with CGD*/ 
         DenseVectorType delta_x;
+        // solve the LM with sparse matrix
         sfm::ba::LinearSolver::Status cg_status = my_solve_schur(Jc, Jp, F, &delta_x);
 
         //3.0 根据计算得到的偏移量，重新计算冲投影误差和均方误差，用于判断终止条件和更新条件.
@@ -789,6 +819,7 @@ void lm_optimization(std::vector<sfm::ba::Camera>*cameras
             /*重新计算相机和三维点，计算重投影误差，注意原始的相机参数没有被更新*/
             compute_reprojection_errors(&F_new, &delta_x, cameras, points, observations);
             /* 计算新的残差值 */
+            // get new errors after last-step optimization
             new_mse = compute_mse(F_new);
             /* 均方误差的绝对变化值和相对变化率*/
             delta_mse = current_mse - new_mse;
@@ -796,6 +827,7 @@ void lm_optimization(std::vector<sfm::ba::Camera>*cameras
         }
         // 正规方程求解失败的情况下
         else {
+            // maintain current results to do another one with smaller or larger trust region
             new_mse = current_mse;
             delta_mse = 0.0;
         }
@@ -823,7 +855,7 @@ void lm_optimization(std::vector<sfm::ba::Camera>*cameras
             /* 对相机参数和三点坐标进行更新 */
             update_parameters(delta_x, cameras, points);
 
-            std::swap(F, F_new);
+            std::swap(F, F_new); // equal to F = F_new
             current_mse = new_mse;
 
             if (delta_mse_ratio < lm_delta_threshold) {
@@ -833,7 +865,7 @@ void lm_optimization(std::vector<sfm::ba::Camera>*cameras
             }
 
             // 增大信赖域大小
-            trust_region_radius *= TRUST_REGION_RADIUS_GAIN;
+            trust_region_radius *= TRUST_REGION_RADIUS_GAIN; // the radius times a new variable
         }
         else {
             std::cout << "BA: #" << std::setw(2) << std::left << lm_iter
@@ -847,7 +879,7 @@ void lm_optimization(std::vector<sfm::ba::Camera>*cameras
             num_lm_iterations += 1;
             num_lm_unsuccessful_iterations += 1;
             // 求解失败的减小信赖域尺寸
-            trust_region_radius *= TRUST_REGION_RADIUS_DECREMENT;
+            trust_region_radius *= TRUST_REGION_RADIUS_DECREMENT; // the radius devides a new variable
         }
 
         /* 判断是否超过最大的迭代次数. */
@@ -863,10 +895,19 @@ void lm_optimization(std::vector<sfm::ba::Camera>*cameras
 
 int main(int argc, char* argv[])
 {
-
+    
+    // use BA to increase the 
     /* 加载数据 */
     load_data("./examples/task2/test_ba.txt",cameras, points, observations);
 
+    std::cout << "Camera Number: " << cameras.size() << std::endl;
+    std::cout << "Point Number: " << points.size() << std::endl;
+    std::cout << "Observation Number: " << points.size() << std::endl;
+
+    // the inputs of BA :
+    // camera poses, 
+    // 3D points,
+    // 2D observation points.
     lm_optimization(&cameras, &points, &observations);
 
     // ba优化
@@ -886,12 +927,17 @@ int main(int argc, char* argv[])
     std::vector<math::Vec2f> radial_distortion(2);
     std::vector<math::Vec3f> new_pts_3d(points.size());
     for(int i=0; i<cameras.size(); i++) {
+        // iterator: the length of translation is 3 to new camera poses
         std::copy(cameras[i].translation, cameras[i].translation + 3, new_cam_poses[i].t.begin());
+        // iterator: the length of rotation is 9
         std::copy(cameras[i].rotation, cameras[i].rotation + 9, new_cam_poses[i].R.begin());
+        // why should we use the distortion parameters to new camera distortion
         radial_distortion[i]=math::Vec2f(cameras[i].distortion[0], cameras[i].distortion[1]);
+        //set the intristic parameter matrix
         new_cam_poses[i].set_k_matrix(cameras[i].focal_length, 0.0, 0.0);
     }
     for(int i=0; i<new_pts_3d.size(); i++) {
+        // copy to new points
         std::copy(points[i].pos, points[i].pos+3, new_pts_3d[i].begin());
     }
 
@@ -909,7 +955,7 @@ int main(int argc, char* argv[])
     std::cout<<"  R: "<<new_cam_poses[1].R<<std::endl;
     std::cout<<"  t: "<<new_cam_poses[1] .t<<std::endl;
 
-
+    // print all points
     std::cout<<"points 3d: "<<std::endl;
     for(int i=0; i<points.size(); i++) {
         std::cout<<points[i].pos[0]<<", "<<points[i].pos[1]<<", "<<points[i].pos[2]<<std::endl;

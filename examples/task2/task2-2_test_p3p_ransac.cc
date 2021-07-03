@@ -6,7 +6,7 @@
 #include <iostream>
 #include <sstream>
 #include <assert.h>
-#include "sfm/ransac_pose_p3p.h"
+#include "sfm/ransac_pose_p3p.h" // P3P algorithm with ransac
 
 int main(int argc, char* argv[]){
 
@@ -28,14 +28,14 @@ int main(int argc, char* argv[]){
     int line_id = 0;
     int n_pts = 0;
     while(getline(fin, line)){
-        std::stringstream  stream(line);
+        std::stringstream  stream(line); // input stream from correspondence file
         if(line_id==0){
-            stream>>n_pts;
+            stream>>n_pts; // the number of 2D 3D correspondence
             //std::cout<<"n_pts: "<<n_pts<<std::endl;
             line_id++;
             continue;
         }
-        sfm::Correspondence2D3D corr;
+        sfm::Correspondence2D3D corr; // 3D point + 2D point
         stream>>corr.p3d[0]>>corr.p3d[1]>>corr.p3d[2]>>corr.p2d[0]>>corr.p2d[1];
         corrs.push_back(corr);
         //std::cout<<corr.p3d[0]<<" "<<corr.p3d[1]<<" "
@@ -43,10 +43,11 @@ int main(int argc, char* argv[]){
     }
 
     // Ransac中止条件，内点阈判断
-    sfm::RansacPoseP3P::Options pose_p3p_opts;
+    sfm::RansacPoseP3P::Options pose_p3p_opts; // hyperparameters configurations
+    pose_p3p_opts.verbose_output = true;
     // Ransac估计相机姿态
-    sfm::RansacPoseP3P::Result ransac_result;
-    sfm::RansacPoseP3P ransac(pose_p3p_opts);
+    sfm::RansacPoseP3P::Result ransac_result; // result container
+    sfm::RansacPoseP3P ransac(pose_p3p_opts); // ransac computation
 
     ransac.estimate(corrs, k_matrix, &ransac_result);
 
