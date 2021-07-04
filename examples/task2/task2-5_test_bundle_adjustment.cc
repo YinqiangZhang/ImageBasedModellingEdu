@@ -165,6 +165,7 @@ bool calc_cam_poses(sfm::Correspondences2D2D const &matches
 int
 main (int argc, char *argv[])
 {
+    // read two image pairs
     if (argc != 3)
     {
         std::cerr << "Syntax: " << argv[0] << " <img1> <img2>" << std::endl;
@@ -193,7 +194,7 @@ main (int argc, char *argv[])
 
     /*2.0 计算sift特征点 */
     sfm::FeatureSet::Options feature_set_opts;
-    feature_set_opts.feature_types = sfm::FeatureSet::FEATURE_SIFT;
+    feature_set_opts.feature_types = sfm::FeatureSet::FEATURE_SIFT; // use SIFT here
     feature_set_opts.sift_opts.verbose_output = true;
 
     sfm::FeatureSet feat1(feature_set_opts);
@@ -202,6 +203,7 @@ main (int argc, char *argv[])
     sfm::FeatureSet feat2(feature_set_opts);
     feat2.compute_features(img2);
 
+    // show the results of descriptor computation
     std::cout << "Image 1 (" << img1->width() << "x" << img1->height() << ") "
               << feat1.sift_descriptors.size() << " descriptors." << std::endl;
     std::cout << "Image 2 (" << img2->width() << "x" << img2->height() << ") "
@@ -224,6 +226,7 @@ main (int argc, char *argv[])
 
 
     /* 计算相机姿态 */
+    // initial poses for BA
     sfm::CameraPose pose1, pose2;
     if(!calc_cam_poses(corrs, &pose1, &pose2, f1, f2))
     {
@@ -375,12 +378,12 @@ main (int argc, char *argv[])
     std::cout<<"  t: "<<new_cam_poses[1] .t<<std::endl;
 
 
-    std::cout<<"points 3d: "<<std::endl;
-    for(int i=0; i<pts_3d.size(); i++) {
-        std::cout<<"( "<<pts_3d[i][0]<<", "<<pts_3d[i][1]<<", "<<pts_3d[i][2]<<" )";
-        std::cout<<"-->";
-        std::cout<<"( "<<new_pts_3d[i][0]<<", "<<new_pts_3d[i][1]<<", "<<new_pts_3d[i][2]<<" )"<<std::endl;
-    }
+    // std::cout<<"points 3d: "<<std::endl;
+    // for(int i=0; i<pts_3d.size(); i++) {
+    //     std::cout<<"( "<<pts_3d[i][0]<<", "<<pts_3d[i][1]<<", "<<pts_3d[i][2]<<" )";
+    //     std::cout<<"-->";
+    //     std::cout<<"( "<<new_pts_3d[i][0]<<", "<<new_pts_3d[i][1]<<", "<<new_pts_3d[i][2]<<" )"<<std::endl;
+    // }
 
 //    math::Matrix<double, 3, 4> P1, P2;
 //    new_cam_poses[0].fill_p_matrix(&P1);
