@@ -157,12 +157,13 @@ features_and_matching (core::Scene::Ptr scene,
 
 int main(int argc, char *argv[])
 {
-
+    // read images
     if(argc < 3){
         std::cout<<"Usage: [input]image_dir [output]scene_dir"<<std::endl;
         return -1;
     }
 
+    // functionality of "make_scene": 
     core::Scene::Ptr scene = make_scene(argv[1], argv[2]);
     std::cout<<"Scene has "<<scene->get_views().size()<<" views. "<<std::endl;
 
