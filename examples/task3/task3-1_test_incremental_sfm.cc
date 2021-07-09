@@ -20,6 +20,7 @@
 #include <fstream>
 #include <iostream>
 
+#define DEBUG_MODE 1
 /**
  *\description 创建一个场景
  * @param image_folder_path
@@ -32,11 +33,13 @@ make_scene(const std::string & image_folder_path, const std::string & scene_path
     util::WallTimer timer;
 
     /*** 创建文件夹 ***/
+    // create folder to save view of different images
     const std::string views_path = util::fs::join_path(scene_path, "views/");
-    util::fs::mkdir(scene_path.c_str());
-    util::fs::mkdir(views_path.c_str());
+    util::fs::mkdir(scene_path.c_str()); // scene folder
+    util::fs::mkdir(views_path.c_str()); // view folder
 
     /***扫描文件夹，获取所有的图像文件路径***/
+    // find all images in the target folder
     util::fs::Directory dir;
     try {dir.scan(image_folder_path);
     }
@@ -49,6 +52,7 @@ make_scene(const std::string & image_folder_path, const std::string & scene_path
     core::Scene::Ptr scene= core::Scene::create("");
 
     /**** 开始加载图像 ****/
+    // sort the images in target folder
     std::sort(dir.begin(), dir.end());
     int num_imported = 0;
     for(std::size_t i=0; i< dir.size(); i++){
@@ -62,7 +66,9 @@ make_scene(const std::string & image_folder_path, const std::string & scene_path
         std::string afname = dir[i].get_absolute_name();
 
         // 从可交换信息文件中读取图像焦距
+        // read focal length from the image information
         std::string exif;
+        // get image and exif information
         core::ImageBase::Ptr image = load_any_image(afname, & exif);
         if(image == nullptr){
             continue;
@@ -82,12 +88,14 @@ make_scene(const std::string & image_folder_path, const std::string & scene_path
 
         add_exif_to_view(view, exif);
 
+        // save the view information in the scene
         scene->get_views().push_back(view);
 
         /***保存视角信息到本地****/
         std::string mve_fname = make_image_name(num_imported);
         std::cout << "Importing image: " << fname
                   << ", writing MVE view: " << mve_fname << "..." << std::endl;
+        // save the view file into local file
         view->save_view_as(util::fs::join_path(views_path, mve_fname));
 
         num_imported+=1;
@@ -111,6 +119,7 @@ features_and_matching (core::Scene::Ptr scene,
                        sfm::bundler::PairwiseMatching* pairwise_matching){
 
     /* Feature computation for the scene. */
+    // use SIFT to extract features
     sfm::bundler::Features::Options feature_opts;
     feature_opts.image_embedding = "original";
     feature_opts.max_image_size = MAX_PIXELS;
@@ -119,7 +128,10 @@ features_and_matching (core::Scene::Ptr scene,
     std::cout << "Computing image features..." << std::endl;
     {
         util::WallTimer timer;
+        // use bundler features to calculate SIFT descriptors
         sfm::bundler::Features bundler_features(feature_opts);
+        // compute on images one by one
+        // outputs are viewports (vector), use the feature class inside the bundler
         bundler_features.compute(scene, viewports);
 
         std::cout << "Computing features took " << timer.get_elapsed()
@@ -140,7 +152,9 @@ features_and_matching (core::Scene::Ptr scene,
     {
         util::WallTimer timer;
         sfm::bundler::Matching bundler_matching(matching_opts);
+        // initialize the bundler matching with all viewports
         bundler_matching.init(viewports);
+        // matching precedure and save the results in pairwise matching
         bundler_matching.compute(pairwise_matching);
         std::cout << "Matching took " << timer.get_elapsed()
                   << " ms." << std::endl;
@@ -154,23 +168,38 @@ features_and_matching (core::Scene::Ptr scene,
     }
 }
 
-
+// SfM algorithm structure (multiple images)
 int main(int argc, char *argv[])
 {
-    // read images
+    // read image sequence from the given folder
     if(argc < 3){
         std::cout<<"Usage: [input]image_dir [output]scene_dir"<<std::endl;
-        return -1;
+        if (!DEBUG_MODE){
+            return -1;
+        }
     }
 
+    core::Scene::Ptr scene;
+    std::string input_sequence;
+    std::string input_sequence_scene;
+    if(DEBUG_MODE == 1){
+        // modified input and output path for debug procedure
+        input_sequence = "/home/yinqiang/3D_Reconstruction/ImageBasedModellingEdu/examples/data/sequence";
+        input_sequence_scene = "/home/yinqiang/3D_Reconstruction/ImageBasedModellingEdu/examples/data/sequence_scene";
+        scene = make_scene(input_sequence, input_sequence_scene);
+    }else{
+        scene = make_scene(argv[1], argv[2]);
+    }
     // functionality of "make_scene": 
-    core::Scene::Ptr scene = make_scene(argv[1], argv[2]);
-    std::cout<<"Scene has "<<scene->get_views().size()<<" views. "<<std::endl;
+    // import all images and save them into a specific data structure (scene)
+    std::cout<<"Scene has "<< scene->get_views().size()<<" views. "<<std::endl;
 
 
     /*进行特征匹配*/
-    sfm::bundler::ViewportList viewports;
-    sfm::bundler::PairwiseMatching pairwise_matching;
+    sfm::bundler::ViewportList viewports; // vector of viewport(save information of cameras and features)
+    sfm::bundler::PairwiseMatching pairwise_matching; // vector of feature matching
+
+    // detect and matching features with SIFT (pre-processing)
     features_and_matching(scene, &viewports, &pairwise_matching );
 
 
@@ -190,12 +219,14 @@ int main(int argc, char *argv[])
         sfm::bundler::Intrinsics::Options intrinsics_opts;
         std::cout << "Initializing camera intrinsics..." << std::endl;
         sfm::bundler::Intrinsics intrinsics(intrinsics_opts);
+        // read necessary information from exif file head 
         intrinsics.compute(scene, &viewports);
     }
 
     /****** 开始增量的BA*****/
     util::WallTimer timer;
     /* Compute connected feature components, i.e. feature tracks. */
+    // extract feature track in these images (identical feature in different view)
     sfm::bundler::TrackList tracks;
     {
         sfm::bundler::Tracks::Options tracks_options;
@@ -379,8 +410,12 @@ int main(int argc, char *argv[])
     /* Save bundle file to scene. */
     std::cout << "Creating bundle data structure..." << std::endl;
     core::Bundle::Ptr bundle = incremental.create_bundle();
-    core::save_mve_bundle(bundle, std::string(argv[2]) + "/synth_0.out");
 
+    if (DEBUG_MODE == 1){
+        core::save_mve_bundle(bundle, input_sequence_scene + "/synth_0.out");
+    }else{
+        core::save_mve_bundle(bundle, std::string(argv[2]) + "/synth_0.out");
+    }
     /* Apply bundle cameras to views. */
     core::Bundle::Cameras const& bundle_cams = bundle->get_cameras();
     core::Scene::ViewList const& views = scene->get_views();
